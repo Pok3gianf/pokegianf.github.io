@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Color Resolution</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        button {
+            padding: 15px 30px;
+            font-size: 20px;
+            background-color: #ff6830;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #ff4500;
+        }
+    </style>
+</head>
+<body>
+    <button onclick="openNewPage()">Image Color Resolution</button>
+
+    <script>
+        function openNewPage() {
+            // Abre una nueva pestaña
+            window.open('ICRprogram.html', '_blank');
+            // Cierra la pestaña actual
+            window.close();
+        }
+    </script>
+</body>
+</html>

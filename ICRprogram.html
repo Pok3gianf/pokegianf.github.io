@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Color Reduction</title>
+    <style>
+        body {
+            background-color: #1c1a1a;
+            color: #ff6830;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        #original, #reduced {
+            border: 2px solid #ff6830;
+            margin: 10px;
+            display: inline-block;
+            padding: 5px;
+            background-color: #1c1a1a;
+        }
+        button, select, input[type="number"], input[type="file"] {
+            border: 2px solid #ff6830;
+            background-color: #1c1a1a;
+            color: #ff6830;
+            padding: 5px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover, select:hover, input[type="number"]:hover, input[type="file"]:hover {
+            background-color: #ff6830;
+            color: #1c1a1a;
+        }
+        #error-message {
+            color: #ff6830;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <input type="file" id="upload" accept="image/png, image/jpeg">
+    <input type="number" id="colorCount" min="1" max="128" value="16">
+    <button onclick="processImage()">Process Image</button>
+    <br>
+    <div id="original"></div>
+    <div id="reduced"></div>
+    <br>
+    <select id="format">
+        <option value="image/png">PNG</option>
+        <option value="image/jpeg">JPG</option>
+    </select>
+    <button onclick="exportImage()">Export Image</button>
+    <br>
+    <p id="processingTime"></p>
+    <p id="error-message"></p>
+
+    <script>
+        let originalImage = null;
+        let reducedImageDataUrl = null;
+
+        function processImage() {
+            const fileInput = document.getElementById('upload');
+            const file = fileInput.files[0];
+            const colorCount = parseInt(document.getElementById('colorCount').value);
+            const processingTimeElement = document.getElementById('processingTime');
+            const errorMessageElement = document.getElementById('error-message');
+            const startTime = Date.now();
+
+            if (file && colorCount > 0 && colorCount <= 128) {
+                const reader = new FileReader();
+
+                reader.onload = function(event) {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const data = imageData.data;
+                        const uniqueColors = new Set();
+
+                        for (let i = 0; i < data.length; i += 4) {
+                            const color = `${data[i]},${data[i + 1]},${data[i + 2]}`;
+                            uniqueColors.add(color);
+                        }
+
+                        if (uniqueColors.size < colorCount) {
+                            errorMessageElement.textContent = 'Esa imagen no tiene suficientes colores, superando a la cantidad máxima... Intenta configurar menos colores';
+                            return;
+                        } else {
+                            errorMessageElement.textContent = '';
+                        }
+
+                        displayImage(img, 'original');
+                        const reducedImg = reduceColors(img, colorCount);
+                        reducedImg.onload = function() {
+                            displayImage(reducedImg, 'reduced');
+                            reducedImageDataUrl = reducedImg.src; // Store the data URL of the reduced image
+                            const endTime = Date.now();
+                            const processingTime = (endTime - startTime) / 1000; // Time in seconds
+                            processingTimeElement.textContent = `Processing Time: ${processingTime.toFixed(2)} seconds`;
+                        }
+                    }
+                };
+
+                reader.readAsDataURL(file);
+            } else {
+                alert('Please select a valid image and color count between 1 and 128.');
+            }
+        }
+
+        function reduceColors(image, numColors) {
+            const canvas = document.createElement('canvas');
+            canvas.width = image.width;
+            canvas.height = image.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            const pixels = [];
+
+            for (let i = 0; i < data.length; i += 4) {
+                pixels.push([data[i], data[i + 1], data[i + 2]]);
+            }
+
+            const clusters = kMeans(pixels, numColors);
+            const palette = clusters.centroids;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const color = [data[i], data[i + 1], data[i + 2]];
+                const closestColor = getClosestColor(color, palette);
+                data[i] = closestColor[0];
+                data[i + 1] = closestColor[1];
+                data[i + 2] = closestColor[2];
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            const reducedImg = new Image();
+            reducedImg.src = canvas.toDataURL('image/png');
+            return reducedImg;
+        }
+
+        function kMeans(pixels, k) {
+            const centroids = pixels.slice(0, k);
+            const assignments = new Array(pixels.length);
+            let changed;
+
+            do {
+                changed = false;
+
+                for (let i = 0; i < pixels.length; i++) {
+                    let minDist = Infinity;
+                    let bestCluster = -1;
+
+                    for (let j = 0; j < k; j++) {
+                        const dist = colorDistance(pixels[i], centroids[j]);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            bestCluster = j;
+                        }
+                    }
+
+                    if (assignments[i] !== bestCluster) {
+                        assignments[i] = bestCluster;
+                        changed = true;
+                    }
+                }
+
+                const newCentroids = Array.from({ length: k }, () => [0, 0, 0]);
+                const counts = Array(k).fill(0);
+
+                for (let i = 0; i < pixels.length; i++) {
+                    const cluster = assignments[i];
+                    newCentroids[cluster][0] += pixels[i][0];
+                    newCentroids[cluster][1] += pixels[i][1];
+                    newCentroids[cluster][2] += pixels[i][2];
+                    counts[cluster]++;
+                }
+
+                for (let j = 0; j < k; j++) {
+                    if (counts[j] > 0) {
+                        newCentroids[j][0] /= counts[j];
+                        newCentroids[j][1] /= counts[j];
+                        newCentroids[j][2] /= counts[j];
+                    }
+                }
+
+                centroids.forEach((centroid, i) => {
+                    if (colorDistance(centroid, newCentroids[i]) > 0) {
+                        changed = true;
+                    }
+                });
+
+                centroids.splice(0, k, ...newCentroids);
+
+            } while (changed);
+
+            return { centroids };
+        }
+
+        function colorDistance(c1, c2) {
+            return Math.sqrt(Math.pow(c1[0] - c2[0], 2) + Math.pow(c1[1] - c2[1], 2) + Math.pow(c1[2] - c2[2], 2));
+        }
+
+        function getClosestColor(color, palette) {
+            let minDist = Infinity;
+            let closestColor = null;
+
+            for (let i = 0; i < palette.length; i++) {
+                const dist = colorDistance(color, palette[i]);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closestColor = palette[i];
+                }
+            }
+
+            return closestColor;
+        }
+
+        function displayImage(image, containerId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            container.appendChild(image);
+        }
+
+        function exportImage() {
+            if (reducedImageDataUrl) {
+                const format = document.getElementById('format').value;
+                const link = document.createElement('a');
+                link.href = reducedImageDataUrl;
+                link.download = `reduced_image.${format.split('/')[1]}`;
+                link.click();
+            } else {
+                alert('Please process an image first.');
+            }
+        }
+    </script>
+</body>
+</html>
